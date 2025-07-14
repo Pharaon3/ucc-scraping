@@ -105,21 +105,17 @@ try:
         time.sleep(10)
 
     # Click all available buttons in tblSearchTermResults/tbody/tr/td/button, rescanning after each click
-    clicked_indices = set()
     while True:
         buttons = driver.find_elements(By.XPATH, '//*[@id="tblSearchTermResults"]/tbody/tr/td/button')
         found_new = False
         for idx, button in enumerate(buttons):
-            if idx not in clicked_indices:
-                try:
-                    button.click()
-                    clicked_indices.add(idx)
-                    found_new = True
-                    time.sleep(5)
-                    break  # Re-scan after each click
-                except Exception as e:
-                    print(f"Could not click button {idx}: {e}")
-                    clicked_indices.add(idx)
+            try:
+                button.click()
+                found_new = True
+                time.sleep(10)
+                break
+            except Exception as e:
+                print(f"Could not click button {idx}: {e}")
         if not found_new:
             break
     time.sleep(2)
@@ -131,9 +127,6 @@ try:
         rows = ucc_table.find_elements(By.TAG_NAME, 'tr')
         table_data = []
         for row_idx in range(len(rows)):
-            # Re-find the table and rows to avoid stale references
-            # ucc_table = driver.find_element(By.XPATH, ucc_table_xpath)
-            # rows = ucc_table.find_elements(By.TAG_NAME, 'tr')
             row = rows[row_idx]
             cols = row.find_elements(By.TAG_NAME, 'th')
             if not cols:
@@ -145,9 +138,8 @@ try:
         
         if filtered_data:
             if csv_header is None:
-                csv_header = filtered_data[0]  # Remove 'Secured Party Name' from header
-            # Add all data rows (skip header)
-            all_results.extend(filtered_data[1:])  # Skip header for data rows
+                csv_header = filtered_data[0]
+            all_results.extend(filtered_data[1:])
             print(f"Found {len(filtered_data)-1} UCC-1 records")
         else:
             print(f"No UCC-1 records found")
@@ -159,11 +151,10 @@ try:
     if all_results:
         with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(csv_header)
+            writer.writerow(['Filing Number'] + csv_header)
             writer.writerows(all_results)
         print(f"Saved {len(all_results)} UCC-1 records to {OUTPUT_CSV}")
     else:
         print("No UCC-1 records found for any secured party")
-
 finally:
     driver.quit()

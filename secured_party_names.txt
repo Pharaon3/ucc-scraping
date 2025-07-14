@@ -3,8 +3,3 @@ Wells Fargo
 JPMorgan Chase
 Citibank
 US Bank
-PNC Bank
-TD Bank
-Capital One
-American Express
-Chase Bank 
