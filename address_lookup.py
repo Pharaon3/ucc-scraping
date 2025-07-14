@@ -12,12 +12,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 def get_zip_code(address):
     """
     Get ZIP code for an address using a free geocoding service.
+    Tries US Census Bureau first, then OpenStreetMap Nominatim if no ZIP found.
     """
     try:
         if not address or "WV" not in address:
             return ""
         
-        # Use a free geocoding service to get ZIP code
         # Option 1: US Census Bureau Geocoding API
         api_url = "https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress"
         params = {
@@ -28,25 +28,20 @@ def get_zip_code(address):
         }
         
         response = requests.get(api_url, params=params)
-        
+        zip_code = None
         if response.status_code == 200:
             data = response.json()
-            
             if 'result' in data and 'addressMatches' in data['result']:
                 matches = data['result']['addressMatches']
-                
                 if matches:
                     match = matches[0]
                     address_components = match.get('addressComponents', {})
-                    
                     # Extract ZIP code
-                    if 'zip' in address_components:
-                        zip_code = address_components['zip']
-                        print(f"Found ZIP code for '{address}': {zip_code}")
+                    zip_code = address_components.get('zip')
+                    if zip_code:
+                        print(f"Found ZIP code for '{address}' (Census): {zip_code}")
                         return zip_code
-        
-        # Option 2: OpenStreetMap Nominatim (fallback)
-        encoded_address = urllib.parse.quote(address)
+        # Option 2: OpenStreetMap Nominatim (fallback if no ZIP from Census)
         nominatim_url = f"https://nominatim.openstreetmap.org/search"
         params = {
             'q': address,
@@ -54,28 +49,62 @@ def get_zip_code(address):
             'limit': 1,
             'addressdetails': 1
         }
-        
         response = requests.get(nominatim_url, params=params, headers={
             'User-Agent': 'UCC_Address_Lookup/1.0'
         })
-        
         if response.status_code == 200:
             data = response.json()
             if data:
                 result = data[0]
                 if 'address' in result:
                     addr = result['address']
-                    if 'postcode' in addr:
-                        zip_code = addr['postcode']
-                        print(f"Found ZIP code for '{address}': {zip_code}")
+                    zip_code = addr.get('postcode')
+                    if zip_code:
+                        print(f"Found ZIP code for '{address}' (Nominatim): {zip_code}")
                         return zip_code
-        
         print(f"No ZIP code found for address: {address}")
         return ""
-        
     except Exception as e:
         print(f"Error getting ZIP code for {address}: {e}")
         return ""
+
+def parse_address_components(address_str):
+    """
+    Parse address string into components: Address, City, State, Zip
+    Returns tuple: (address, city, state, zip_code)
+    """
+    if not address_str:
+        return "", "", "", ""
+    
+    # Split by comma and clean up
+    parts = [part.strip() for part in address_str.split(',')]
+    
+    if len(parts) >= 4:
+        # Full address: Address, City, State, Zip
+        address = parts[0]
+        city = parts[1]
+        state = parts[2]
+        zip_code = parts[3]
+    elif len(parts) == 3:
+        # Address, City, State
+        address = parts[0]
+        city = parts[1]
+        state = parts[2]
+        zip_code = ""
+    elif len(parts) == 2:
+        # Address, City or Address, State
+        address = parts[0]
+        city = parts[1]
+        state = ""
+        zip_code = ""
+    else:
+        # Single part
+        address = address_str
+        city = ""
+        state = ""
+        zip_code = ""
+    
+    return address, city, state, zip_code
 
 def setup_driver():
     """Set up Chrome driver for web scraping."""
@@ -93,7 +122,7 @@ def lookup_address_naics(driver, name, entity_type):
         # Clean the name for search
         search_name = name.strip()
         if not search_name:
-            return ""
+            return "", "", "", ""
         
         print(f"Looking up address for {entity_type}: {search_name}")
         
@@ -166,7 +195,7 @@ def lookup_address_naics(driver, name, entity_type):
                                 current_address = f"{current_address}, {zip_code}"
                             
                             print(f"Found WV address for {entity_type} '{name}': {current_address}")
-                            return current_address
+                            return current_address, city, state, zip_code
                         else:
                             # State is not WV, move to next row
                             print(f"Row {row_index}: State is {state}, not WV. Moving to next row.")
@@ -185,22 +214,24 @@ def lookup_address_naics(driver, name, entity_type):
                         first_address = f"{first_address}, {zip_code}"
                     
                     print(f"No WV address found for {entity_type} '{name}'. Using first result: {first_address}")
-                    return first_address
+                    # Parse the first address to get components
+                    addr_parts = parse_address_components(first_address)
+                    return first_address, addr_parts[1], addr_parts[2], addr_parts[3]
                 else:
                     print(f"No address found for {entity_type}: {name}")
-                    return ""
+                    return "", "", "", ""
                 
             except Exception as e:
                 print(f"Error extracting address: {e}")
-                return ""
+                return "", "", "", ""
             
         except Exception as e:
             print(f"Error filling form for {name}: {e}")
-            return ""
+            return "", "", "", ""
         
     except Exception as e:
         print(f"Error looking up address for {name}: {e}")
-        return ""
+        return "", "", "", ""
 
 def process_ucc_csv(input_csv, output_csv):
     """
@@ -214,7 +245,8 @@ def process_ucc_csv(input_csv, output_csv):
         header = next(reader)  # Get the header row
         
         # Add address columns to header
-        new_header = header + ['Debtor Address', 'Secured Party Address']
+        new_header = header + ['Debtor Address', 'Debtor City', 'Debtor State', 'Debtor Zip', 
+                              'Secured Party Address', 'Secured Party City', 'Secured Party State', 'Secured Party Zip']
         rows.append(new_header)
         
         # Store all data rows for processing
@@ -231,10 +263,10 @@ def process_ucc_csv(input_csv, output_csv):
             
             # Look up debtor address with new browser
             print(f"Looking up debtor address for: {debtor}")
-            debtor_address = ""
+            debtor_address, debtor_city, debtor_state, debtor_zip = "", "", "", ""
             try:
                 driver = setup_driver()
-                debtor_address = lookup_address_naics(driver, debtor, "debtor")
+                debtor_address, debtor_city, debtor_state, debtor_zip = lookup_address_naics(driver, debtor, "debtor")
             except Exception as e:
                 print(f"Error looking up debtor address: {e}")
             finally:
@@ -242,17 +274,22 @@ def process_ucc_csv(input_csv, output_csv):
             
             # Look up secured party address with new browser
             print(f"Looking up secured party address for: {secured_party}")
-            secured_party_address = ""
+            secured_party_address, secured_party_city, secured_party_state, secured_party_zip = "", "", "", ""
             try:
                 driver = setup_driver()
-                secured_party_address = lookup_address_naics(driver, secured_party, "secured_party")
+                secured_party_address, secured_party_city, secured_party_state, secured_party_zip = lookup_address_naics(driver, secured_party, "secured_party")
             except Exception as e:
                 print(f"Error looking up secured party address: {e}")
             finally:
                 driver.quit()
             
-            # Add addresses to the row
-            new_row = row + [debtor_address, secured_party_address]
+            # Parse address components
+            debtor_addr, debtor_city, debtor_state, debtor_zip = parse_address_components(debtor_address)
+            secured_party_addr, secured_party_city, secured_party_state, secured_party_zip = parse_address_components(secured_party_address)
+            
+            # Add address components to the row
+            new_row = row + [debtor_addr, debtor_city, debtor_state, debtor_zip,
+                           secured_party_addr, secured_party_city, secured_party_state, secured_party_zip]
             rows.append(new_row)
             
             # Add delay between processing

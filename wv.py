@@ -7,12 +7,47 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.keys import Keys
 import csv
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Read secured party names from file
 def read_secured_party_names(filename):
     with open(filename, 'r') as file:
         return [line.strip() for line in file if line.strip()]
+
+from datetime import datetime
+
+def calculate_lapse_date(filing_date_str):
+    """
+    Calculate lapse date: 5 years after filing date.
+    If that date is before today, add 5 more years.
+    Example:
+      - 11/14/2020 -> 11/14/2025
+      - 12/15/2018 (if today is after 12/15/2023) -> 12/15/2028
+    """
+    try:
+        # Parse the filing date
+        filing_date = datetime.strptime(filing_date_str, '%m/%d/%Y')
+        
+        # Add 5 years
+        lapse_year = filing_date.year + 5
+        try:
+            lapse_date = filing_date.replace(year=lapse_year)
+        except ValueError:
+            # Handle Feb 29 -> Feb 28 in non-leap years
+            lapse_date = filing_date.replace(month=2, day=28, year=lapse_year)
+        
+        # Check if lapse date is before today
+        if lapse_date.date() < datetime.today().date():
+            lapse_year += 5
+            try:
+                lapse_date = filing_date.replace(year=lapse_year)
+            except ValueError:
+                lapse_date = filing_date.replace(month=2, day=28, year=lapse_year)
+        
+        return lapse_date.strftime('%m/%d/%Y')
+    except Exception as e:
+        print(f"Error calculating lapse date for {filing_date_str}: {e}")
+        return ""
 
 # Filter table data for UCC-1 records only
 def filter_ucc1_records(table_data):
@@ -58,8 +93,11 @@ try:
     search_type_button.click()
     time.sleep(1)
 
+    search_option = driver.find_element(By.XPATH, '//*[@id="SearchOptions"]/div[1]/label')
+    search_option.click()
+    time.sleep(1)
+
     # Set 'From Date' to 8 days before today using the datepicker
-    from datetime import timedelta
     target_date = datetime.now() - timedelta(days=8)
     target_day = target_date.day
     target_month_year = target_date.strftime('%B %Y')
@@ -139,8 +177,31 @@ try:
         if filtered_data:
             if csv_header is None:
                 csv_header = filtered_data[0]
-            all_results.extend(filtered_data[1:])
-            print(f"Found {len(filtered_data)-1} UCC-1 records")
+            
+            # Process each row to add lapse date
+            processed_rows = []
+            for row in filtered_data[1:]:  # Skip header
+                # Find the filing date column (you may need to adjust the index based on your data)
+                # Assuming filing date is in a specific column - adjust the index as needed
+                filing_date_index = None
+                for i, cell in enumerate(row):
+                    if '/' in str(cell) and len(str(cell).split('/')) == 3:  # Simple date format check
+                        filing_date_index = i
+                        break
+                
+                if filing_date_index is not None:
+                    filing_date = row[filing_date_index]
+                    lapse_date = calculate_lapse_date(filing_date)
+                    # Add lapse date to the row
+                    row_with_lapse = row + [lapse_date]
+                else:
+                    # If no filing date found, add empty lapse date
+                    row_with_lapse = row + [""]
+                
+                processed_rows.append(row_with_lapse)
+            
+            all_results.extend(processed_rows)
+            print(f"Found {len(processed_rows)} UCC-1 records")
         else:
             print(f"No UCC-1 records found")
             
@@ -151,7 +212,7 @@ try:
     if all_results:
         with open(OUTPUT_CSV, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(['Filing Number'] + csv_header)
+            writer.writerow(['Filing Number'] + csv_header + ['Lapse Date'])
             writer.writerows(all_results)
         print(f"Saved {len(all_results)} UCC-1 records to {OUTPUT_CSV}")
     else:
