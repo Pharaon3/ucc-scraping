@@ -17,33 +17,21 @@ def read_secured_party_names(filename):
 from datetime import datetime
 
 def calculate_lapse_date(filing_date_str):
-    """
-    Calculate lapse date: 5 years after filing date.
-    If that date is before today, add 5 more years.
-    Example:
-      - 11/14/2020 -> 11/14/2025
-      - 12/15/2018 (if today is after 12/15/2023) -> 12/15/2028
-    """
     try:
         # Parse the filing date
         filing_date = datetime.strptime(filing_date_str, '%m/%d/%Y')
-        
-        # Add 5 years
         lapse_year = filing_date.year + 5
         try:
             lapse_date = filing_date.replace(year=lapse_year)
         except ValueError:
-            # Handle Feb 29 -> Feb 28 in non-leap years
             lapse_date = filing_date.replace(month=2, day=28, year=lapse_year)
-        
-        # Check if lapse date is before today
-        if lapse_date.date() < datetime.today().date():
+        # Keep adding 5 years until lapse_date is after today
+        while lapse_date.date() < datetime.today().date():
             lapse_year += 5
             try:
                 lapse_date = filing_date.replace(year=lapse_year)
             except ValueError:
                 lapse_date = filing_date.replace(month=2, day=28, year=lapse_year)
-        
         return lapse_date.strftime('%m/%d/%Y')
     except Exception as e:
         print(f"Error calculating lapse date for {filing_date_str}: {e}")
