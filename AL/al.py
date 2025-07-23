@@ -41,7 +41,16 @@ for secured_party_name in secured_party_names:
         driver.get("https://www.alabamainteractive.org/ucc_filing/NewSearch.do")
         time.sleep(2)
 
-        filer_type_button = driver.find_element(By.XPATH, '/html/body/table/tbody/tr[1]/td/table/tbody/tr[7]/td/form/table/tbody/tr[4]/td/table/tbody/tr[12]/td[2]/input[3]')
+        from selenium.common.exceptions import NoSuchElementException
+
+        filer_type_xpath = '/html/body/table/tbody/tr[1]/td/table/tbody/tr[7]/td/form/table/tbody/tr[4]/td/table/tbody/tr[12]/td[2]/input[3]'
+        try:
+            filer_type_button = driver.find_element(By.XPATH, filer_type_xpath)
+        except NoSuchElementException:
+            # If not found, reload and try again once
+            driver.refresh()
+            time.sleep(2)
+            filer_type_button = driver.find_element(By.XPATH, filer_type_xpath)
         filer_type_button.click()
         time.sleep(1)
 
@@ -49,9 +58,9 @@ for secured_party_name in secured_party_names:
         entry_type_button.click()
         time.sleep(1)
 
-        filing_state_button = driver.find_element(By.XPATH, '/html/body/table/tbody/tr[1]/td/table/tbody/tr[7]/td/form/table/tbody/tr[4]/td/table/tbody/tr[14]/td[2]/input[2]')
-        filing_state_button.click()
-        time.sleep(1)
+        # filing_state_button = driver.find_element(By.XPATH, '/html/body/table/tbody/tr[1]/td/table/tbody/tr[7]/td/form/table/tbody/tr[4]/td/table/tbody/tr[14]/td[2]/input[2]')
+        # filing_state_button.click()
+        # time.sleep(1)
 
         search_option_button = driver.find_element(By.XPATH, '/html/body/table/tbody/tr[1]/td/table/tbody/tr[7]/td/form/table/tbody/tr[4]/td/table/tbody/tr[19]/td[2]/input[1]')
         search_option_button.click()
